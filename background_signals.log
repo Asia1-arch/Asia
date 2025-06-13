@@ -1,0 +1,36 @@
+2025-06-06 03:50:12,023 - INFO - Background signal monitoring started
+2025-06-06 03:50:12,023 - INFO - Monitoring symbols: crash300, boom300, crash1000, boom1000
+2025-06-06 03:50:12,023 - INFO - Check interval: 30 seconds
+2025-06-06 03:50:12,024 - INFO - Signals saved to: background_signals/
+2025-06-06 03:50:14,366 - ERROR - Error connecting to Deriv API: module 'websocket' has no attribute 'WebSocketApp'
+2025-06-06 03:50:14,367 - WARNING - Failed to connect to Deriv API, will use fallback data
+2025-06-06 03:50:14,367 - WARNING - No real market data available for crash300 - may require additional API permissions
+2025-06-06 03:50:14,368 - WARNING - No price data available for crash300 on 1m
+2025-06-06 03:50:14,369 - WARNING - No real market data available for crash300 - may require additional API permissions
+2025-06-06 03:50:14,370 - WARNING - No price data available for crash300 on 5m
+2025-06-06 03:50:14,370 - WARNING - No real market data available for crash300 - may require additional API permissions
+2025-06-06 03:50:14,370 - WARNING - No price data available for crash300 on 15m
+2025-06-06 03:50:14,371 - ERROR - Error connecting to Deriv API: module 'websocket' has no attribute 'WebSocketApp'
+2025-06-06 03:50:14,371 - WARNING - Failed to connect to Deriv API, will use fallback data
+2025-06-06 03:50:14,371 - WARNING - No real market data available for boom300 - may require additional API permissions
+2025-06-06 03:50:14,371 - WARNING - No price data available for boom300 on 1m
+2025-06-06 03:50:14,372 - WARNING - No real market data available for boom300 - may require additional API permissions
+2025-06-06 03:50:14,372 - WARNING - No price data available for boom300 on 5m
+2025-06-06 03:50:14,372 - WARNING - No real market data available for boom300 - may require additional API permissions
+2025-06-06 03:50:14,372 - WARNING - No price data available for boom300 on 15m
+2025-06-06 03:50:14,373 - ERROR - Error connecting to Deriv API: module 'websocket' has no attribute 'WebSocketApp'
+2025-06-06 03:50:14,373 - WARNING - Failed to connect to Deriv API, will use fallback data
+2025-06-06 03:50:14,373 - WARNING - No real market data available for crash1000 - may require additional API permissions
+2025-06-06 03:50:14,374 - WARNING - No price data available for crash1000 on 1m
+2025-06-06 03:50:14,374 - WARNING - No real market data available for crash1000 - may require additional API permissions
+2025-06-06 03:50:14,374 - WARNING - No price data available for crash1000 on 5m
+2025-06-06 03:50:14,374 - WARNING - No real market data available for crash1000 - may require additional API permissions
+2025-06-06 03:50:14,375 - WARNING - No price data available for crash1000 on 15m
+2025-06-06 03:50:14,375 - ERROR - Error connecting to Deriv API: module 'websocket' has no attribute 'WebSocketApp'
+2025-06-06 03:50:14,375 - WARNING - Failed to connect to Deriv API, will use fallback data
+2025-06-06 03:50:14,376 - WARNING - No real market data available for boom1000 - may require additional API permissions
+2025-06-06 03:50:14,376 - WARNING - No price data available for boom1000 on 1m
+2025-06-06 03:50:14,378 - WARNING - No real market data available for boom1000 - may require additional API permissions
+2025-06-06 03:50:14,378 - WARNING - No price data available for boom1000 on 5m
+2025-06-06 03:50:14,379 - WARNING - No real market data available for boom1000 - may require additional API permissions
+2025-06-06 03:50:14,379 - WARNING - No price data available for boom1000 on 15m
