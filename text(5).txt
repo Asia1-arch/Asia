@@ -1,0 +1,1291 @@
+//+------------------------------------------------------------------+
+//|                                      TradingSignalDetector.mq5 |
+//|                           Enhanced Pattern Detection Expert Advisor |
+//|                                      Copyright 2024, Advanced Trading |
+//+------------------------------------------------------------------+
+#property copyright "Copyright 2024, Advanced Trading"
+#property link      "https://www.mql5.com"
+#property version   "2.00"
+#property strict
+
+#include <Trade\Trade.mqh>
+#include "includes/FractalDetector.mqh"
+#include "includes/ZigZagDetector.mqh"
+#include "includes/PatternDetector.mqh"
+#include "includes/DivergenceAnalyzer.mqh"
+#include "includes/RiskManager.mqh"
+#include "includes/PerformanceOptimizer.mqh"
+
+//--- Input parameters
+input group "=== CORE SETTINGS ==="
+input string TradingSymbols = "EURUSD,GBPUSD,USDJPY,CRASH1000,BOOM1000"; // Comma-separated symbol list
+input ENUM_TIMEFRAMES SignalTimeframe = PERIOD_CURRENT;
+input bool EnableMultiTimeframe = true;
+input ENUM_TIMEFRAMES ConfirmationTimeframe = PERIOD_H1;
+input bool AutoDetectSymbols = true;
+
+input group "=== FRACTAL SETTINGS ==="
+input int FractalPeriod = 5;
+input int MinFractalBars = 3;
+input bool UseFractalFilter = true;
+input double FractalStrengthThreshold = 0.618;
+
+input group "=== ZIGZAG SETTINGS ==="
+input int ZigZagDepth = 12;
+input int ZigZagDeviation = 5;
+input int ZigZagBackstep = 3;
+input double MinZigZagMove = 0.1;
+input bool UseAdaptiveZigZag = true;
+
+input group "=== INDICATOR SETTINGS ==="
+input int RSI_Period = 14;
+input int Stoch_Period = 14;
+input int Stoch_K_Period = 5;
+input int Stoch_D_Period = 3;
+input int MACD_Fast = 12;
+input int MACD_Slow = 26;
+input int MACD_Signal = 9;
+input int BB_Period = 20;
+input double BB_Deviation = 2.0;
+input int ATR_Period = 14;
+input int EMA_Fast = 12;
+input int EMA_Slow = 26;
+input int SMA_Period = 50;
+input int WilliamsR_Period = 14;
+input int CCI_Period = 20;
+input int ADX_Period = 14;
+
+input group "=== PATTERN DETECTION ==="
+input bool EnableAdvancedPatterns = true;
+input int PatternLookback = 100;
+input double PatternTolerance = 0.02;
+input bool UseDynamicTolerance = true;
+input double ATR_ToleranceMultiplier = 1.5;
+input bool DetectTriangles = true;
+input bool DetectWedges = true;
+input bool DetectChannels = true;
+input bool DetectHeadShoulders = true;
+input bool DetectDoubleTopBottom = true;
+input bool DetectFlags = true;
+input bool DetectCups = true;
+input bool DetectRectangles = true;
+
+input group "=== CANDLESTICK PATTERNS ==="
+input bool EnableCandlestickPatterns = true;
+input int CandleAnalysisPeriod = 10;
+input double CandleBodyRatio = 0.7;
+input double CandleShadowRatio = 0.3;
+input bool UseStatisticalValidation = true;
+input double PatternSuccessRate = 65.0;
+
+input group "=== DIVERGENCE ANALYSIS ==="
+input bool EnableDivergenceDetection = true;
+input bool DetectRSIDivergence = true;
+input bool DetectMACDDivergence = true;
+input bool DetectCCIDivergence = true;
+input bool DetectStochasticDivergence = true;
+input int DivergenceLookback = 50;
+input double DivergenceThreshold = 5.0;
+input bool DetectHiddenDivergence = true;
+
+input group "=== TRADING SETTINGS ==="
+input bool EnableAutoTrading = false;
+input double BaseLotSize = 0.01;
+input bool UseAdaptiveLotSize = true;
+input double MaxRiskPercent = 2.0;
+input double ATR_Multiplier_SL = 2.0;
+input double ATR_Multiplier_TP = 4.0;
+input bool UseDynamicSLTP = true;
+input double MinConfidenceThreshold = 75.0;
+input int MaxDailyTrades = 5;
+input int MaxConcurrentTrades = 3;
+
+input group "=== FILTERS ==="
+input bool EnableBuySignals = true;
+input bool EnableSellSignals = true;
+input bool UseAdvancedFilters = true;
+input bool TradeOnlyTrends = false;
+input bool UseVolumeFilter = true;
+input bool UseSpreadFilter = true;
+input double MaxSpreadPips = 3.0;
+
+input group "=== NOTIFICATIONS ==="
+input bool ShowAlerts = true;
+input bool SendNotifications = false;
+input bool SendEmails = false;
+input bool DrawLinesOnChart = true;
+input bool ShowSignalLabels = true;
+input bool DrawPatternLines = true;
+input bool ShowConfidenceScores = true;
+
+input group "=== PERFORMANCE ==="
+input bool EnablePerformanceOptimization = true;
+input bool UseCaching = true;
+input int CacheSize = 1000;
+input bool EnableProfiling = false;
+input bool LogDetailedInfo = false;
+
+//--- Global variables
+CTrade trade;
+CFractalDetector* fractalDetector;
+CZigZagDetector* zigzagDetector;
+CPatternDetector* patternDetector;
+CDivergenceAnalyzer* divergenceAnalyzer;
+CRiskManager* riskManager;
+CPerformanceOptimizer* performanceOptimizer;
+
+// Indicator handles
+int rsi_handle, stoch_handle, macd_handle, bb_handle, atr_handle;
+int ema_fast_handle, ema_slow_handle, sma_handle, williams_handle, cci_handle, adx_handle;
+
+// Indicator buffers
+double rsi_buffer[], stoch_k_buffer[], stoch_d_buffer[];
+double macd_line_buffer[], macd_signal_buffer[], macd_histogram_buffer[];
+double bb_upper_buffer[], bb_middle_buffer[], bb_lower_buffer[];
+double atr_buffer[], ema_fast_buffer[], ema_slow_buffer[], sma_buffer[];
+double williams_buffer[], cci_buffer[], adx_buffer[];
+
+// Trading variables
+int daily_trade_count = 0;
+int concurrent_trades = 0;
+datetime last_trade_day = 0;
+datetime last_signal_time = 0;
+double account_balance = 0;
+double current_atr = 0;
+
+// Performance tracking
+struct TradeStats {
+    int total_trades;
+    int winning_trades;
+    int losing_trades;
+    double total_profit;
+    double total_loss;
+    double win_rate;
+    double avg_risk_reward;
+    double max_drawdown;
+    double current_drawdown;
+    double peak_balance;
+};
+
+TradeStats stats;
+
+//--- Enums
+enum SIGNAL_TYPE {
+    SIGNAL_NONE = 0,
+    SIGNAL_BUY = 1,
+    SIGNAL_SELL = -1
+};
+
+enum CONFIDENCE_LEVEL {
+    CONFIDENCE_LOW = 1,
+    CONFIDENCE_MEDIUM = 2,
+    CONFIDENCE_HIGH = 3,
+    CONFIDENCE_EXTREME = 4
+};
+
+enum PATTERN_TYPE {
+    PATTERN_NONE = 0,
+    PATTERN_DOJI = 1,
+    PATTERN_HAMMER = 2,
+    PATTERN_SHOOTING_STAR = 3,
+    PATTERN_ENGULFING_BULL = 4,
+    PATTERN_ENGULFING_BEAR = 5,
+    PATTERN_MORNING_STAR = 6,
+    PATTERN_EVENING_STAR = 7,
+    PATTERN_PIERCING_LINE = 8,
+    PATTERN_DARK_CLOUD = 9,
+    PATTERN_THREE_WHITE_SOLDIERS = 10,
+    PATTERN_THREE_BLACK_CROWS = 11,
+    PATTERN_HARAMI_BULL = 12,
+    PATTERN_HARAMI_BEAR = 13,
+    PATTERN_SPINNING_TOP = 14,
+    PATTERN_MARUBOZU_BULL = 15,
+    PATTERN_MARUBOZU_BEAR = 16
+};
+
+enum CHART_PATTERN_TYPE {
+    CHART_PATTERN_NONE = 0,
+    CHART_PATTERN_HEAD_SHOULDERS = 1,
+    CHART_PATTERN_INVERSE_HEAD_SHOULDERS = 2,
+    CHART_PATTERN_DOUBLE_TOP = 3,
+    CHART_PATTERN_DOUBLE_BOTTOM = 4,
+    CHART_PATTERN_TRIPLE_TOP = 5,
+    CHART_PATTERN_TRIPLE_BOTTOM = 6,
+    CHART_PATTERN_ASCENDING_TRIANGLE = 7,
+    CHART_PATTERN_DESCENDING_TRIANGLE = 8,
+    CHART_PATTERN_SYMMETRICAL_TRIANGLE = 9,
+    CHART_PATTERN_RISING_WEDGE = 10,
+    CHART_PATTERN_FALLING_WEDGE = 11,
+    CHART_PATTERN_BULL_FLAG = 12,
+    CHART_PATTERN_BEAR_FLAG = 13,
+    CHART_PATTERN_BULL_PENNANT = 14,
+    CHART_PATTERN_BEAR_PENNANT = 15,
+    CHART_PATTERN_RECTANGLE = 16,
+    CHART_PATTERN_CUP_HANDLE = 17,
+    CHART_PATTERN_ASCENDING_CHANNEL = 18,
+    CHART_PATTERN_DESCENDING_CHANNEL = 19
+};
+
+enum DIVERGENCE_TYPE {
+    DIVERGENCE_NONE = 0,
+    DIVERGENCE_BULLISH = 1,
+    DIVERGENCE_BEARISH = 2,
+    DIVERGENCE_HIDDEN_BULLISH = 3,
+    DIVERGENCE_HIDDEN_BEARISH = 4
+};
+
+//--- Structures
+struct TradingSignal {
+    SIGNAL_TYPE signal_type;
+    CONFIDENCE_LEVEL confidence;
+    double confidence_score;
+    double price;
+    double stop_loss;
+    double take_profit;
+    string reasons;
+    PATTERN_TYPE pattern;
+    CHART_PATTERN_TYPE chart_pattern;
+    DIVERGENCE_TYPE divergence;
+    datetime timestamp;
+    double risk_reward_ratio;
+    bool multi_timeframe_confirmed;
+};
+
+struct FractalPoint {
+    datetime time;
+    double price;
+    bool is_high;
+    double strength;
+    int bar_index;
+};
+
+struct ZigZagPoint {
+    datetime time;
+    double price;
+    bool is_peak;
+    double move_size;
+    int bar_index;
+};
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+int OnInit() {
+    // Initialize performance optimizer first
+    performanceOptimizer = new CPerformanceOptimizer();
+    if (!performanceOptimizer.Initialize(EnablePerformanceOptimization, UseCaching, CacheSize)) {
+        Print("Failed to initialize Performance Optimizer");
+        return INIT_FAILED;
+    }
+    
+    // Initialize risk manager
+    riskManager = new CRiskManager();
+    if (!riskManager.Initialize(MaxRiskPercent, BaseLotSize, UseAdaptiveLotSize)) {
+        Print("Failed to initialize Risk Manager");
+        return INIT_FAILED;
+    }
+    
+    // Initialize fractal detector
+    fractalDetector = new CFractalDetector();
+    if (!fractalDetector.Initialize(FractalPeriod, MinFractalBars, FractalStrengthThreshold)) {
+        Print("Failed to initialize Fractal Detector");
+        return INIT_FAILED;
+    }
+    
+    // Initialize zigzag detector
+    zigzagDetector = new CZigZagDetector();
+    if (!zigzagDetector.Initialize(ZigZagDepth, ZigZagDeviation, ZigZagBackstep, UseAdaptiveZigZag)) {
+        Print("Failed to initialize ZigZag Detector");
+        return INIT_FAILED;
+    }
+    
+    // Initialize pattern detector
+    patternDetector = new CPatternDetector();
+    if (!patternDetector.Initialize(PatternLookback, PatternTolerance, UseDynamicTolerance)) {
+        Print("Failed to initialize Pattern Detector");
+        return INIT_FAILED;
+    }
+    
+    // Initialize divergence analyzer
+    divergenceAnalyzer = new CDivergenceAnalyzer();
+    if (!divergenceAnalyzer.Initialize(DivergenceLookback, DivergenceThreshold, DetectHiddenDivergence)) {
+        Print("Failed to initialize Divergence Analyzer");
+        return INIT_FAILED;
+    }
+    
+    // Initialize all indicators
+    if (!InitializeIndicators()) {
+        Print("Failed to initialize indicators");
+        return INIT_FAILED;
+    }
+    
+    // Initialize arrays
+    InitializeArrays();
+    
+    // Initialize trading statistics
+    InitializeStats();
+    
+    account_balance = AccountInfoDouble(ACCOUNT_BALANCE);
+    stats.peak_balance = account_balance;
+    
+    Print("Enhanced TradingSignalDetector v2.0 initialized successfully for ", _Symbol);
+    Print("Fractal Detection: ", fractalDetector != NULL ? "Enabled" : "Disabled");
+    Print("ZigZag Detection: ", zigzagDetector != NULL ? "Enabled" : "Disabled");
+    Print("Pattern Detection: ", EnableAdvancedPatterns ? "Enabled" : "Disabled");
+    Print("Divergence Analysis: ", EnableDivergenceDetection ? "Enabled" : "Disabled");
+    Print("Multi-Timeframe: ", EnableMultiTimeframe ? "Enabled" : "Disabled");
+    
+    return INIT_SUCCEEDED;
+}
+
+//+------------------------------------------------------------------+
+//| Expert deinitialization function                                 |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason) {
+    // Save performance data
+    if (performanceOptimizer != NULL) {
+        performanceOptimizer.SaveCache();
+        delete performanceOptimizer;
+    }
+    
+    // Clean up objects
+    if (fractalDetector != NULL) delete fractalDetector;
+    if (zigzagDetector != NULL) delete zigzagDetector;
+    if (patternDetector != NULL) delete patternDetector;
+    if (divergenceAnalyzer != NULL) delete divergenceAnalyzer;
+    if (riskManager != NULL) delete riskManager;
+    
+    // Release indicator handles
+    ReleaseIndicators();
+    
+    // Remove chart objects
+    ObjectsDeleteAll(0, "SignalDetector_");
+    ObjectsDeleteAll(0, "Pattern_");
+    ObjectsDeleteAll(0, "Fractal_");
+    ObjectsDeleteAll(0, "ZigZag_");
+    ObjectsDeleteAll(0, "Divergence_");
+    
+    // Print final statistics
+    PrintFinalStats();
+    
+    Print("Enhanced TradingSignalDetector v2.0 deinitialized - Reason: ", reason);
+}
+
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+void OnTick() {
+    // Performance optimization: Check if we need to process this tick
+    if (performanceOptimizer != NULL && !performanceOptimizer.ShouldProcessTick()) {
+        return;
+    }
+    
+    // Check if new bar
+    static datetime last_bar_time = 0;
+    datetime current_bar_time = iTime(_Symbol, SignalTimeframe, 0);
+    
+    if (current_bar_time == last_bar_time) {
+        return;
+    }
+    
+    last_bar_time = current_bar_time;
+    
+    // Reset daily counter if new day
+    CheckDailyReset();
+    
+    // Check trading limits
+    if (!CanTrade()) {
+        return;
+    }
+    
+    // Update all market data
+    if (!UpdateMarketData()) {
+        if (LogDetailedInfo) Print("Failed to update market data");
+        return;
+    }
+    
+    // Analyze market conditions
+    TradingSignal signal = AnalyzeMarket();
+    
+    // Process signal if valid
+    if (signal.signal_type != SIGNAL_NONE && signal.confidence_score >= MinConfidenceThreshold) {
+        ProcessTradingSignal(signal);
+    }
+    
+    // Update visual elements
+    UpdateChartDisplay();
+    
+    // Update performance metrics
+    UpdatePerformanceMetrics();
+}
+
+//+------------------------------------------------------------------+
+//| Initialize all indicators                                        |
+//+------------------------------------------------------------------+
+bool InitializeIndicators() {
+    // Initialize indicators with proper error handling
+    rsi_handle = iRSI(_Symbol, SignalTimeframe, RSI_Period, PRICE_CLOSE);
+    if (rsi_handle == INVALID_HANDLE) {
+        Print("ERROR: Failed to create RSI indicator");
+        return false;
+    }
+    
+    stoch_handle = iStochastic(_Symbol, SignalTimeframe, Stoch_K_Period, Stoch_D_Period, Stoch_Period, MODE_SMA, STO_LOWHIGH);
+    if (stoch_handle == INVALID_HANDLE) {
+        Print("ERROR: Failed to create Stochastic indicator");
+        return false;
+    }
+    
+    macd_handle = iMACD(_Symbol, SignalTimeframe, MACD_Fast, MACD_Slow, MACD_Signal, PRICE_CLOSE);
+    if (macd_handle == INVALID_HANDLE) {
+        Print("ERROR: Failed to create MACD indicator");
+        return false;
+    }
+    
+    bb_handle = iBands(_Symbol, SignalTimeframe, BB_Period, 0, BB_Deviation, PRICE_CLOSE);
+    if (bb_handle == INVALID_HANDLE) {
+        Print("ERROR: Failed to create Bollinger Bands indicator");
+        return false;
+    }
+    
+    atr_handle = iATR(_Symbol, SignalTimeframe, ATR_Period);
+    if (atr_handle == INVALID_HANDLE) {
+        Print("ERROR: Failed to create ATR indicator");
+        return false;
+    }
+    
+    ema_fast_handle = iMA(_Symbol, SignalTimeframe, EMA_Fast, 0, MODE_EMA, PRICE_CLOSE);
+    if (ema_fast_handle == INVALID_HANDLE) {
+        Print("ERROR: Failed to create Fast EMA indicator");
+        return false;
+    }
+    
+    ema_slow_handle = iMA(_Symbol, SignalTimeframe, EMA_Slow, 0, MODE_EMA, PRICE_CLOSE);
+    if (ema_slow_handle == INVALID_HANDLE) {
+        Print("ERROR: Failed to create Slow EMA indicator");
+        return false;
+    }
+    
+    sma_handle = iMA(_Symbol, SignalTimeframe, SMA_Period, 0, MODE_SMA, PRICE_CLOSE);
+    if (sma_handle == INVALID_HANDLE) {
+        Print("ERROR: Failed to create SMA indicator");
+        return false;
+    }
+    
+    williams_handle = iWPR(_Symbol, SignalTimeframe, WilliamsR_Period);
+    if (williams_handle == INVALID_HANDLE) {
+        Print("ERROR: Failed to create Williams %R indicator");
+        return false;
+    }
+    
+    cci_handle = iCCI(_Symbol, SignalTimeframe, CCI_Period, PRICE_TYPICAL);
+    if (cci_handle == INVALID_HANDLE) {
+        Print("ERROR: Failed to create CCI indicator");
+        return false;
+    }
+    
+    adx_handle = iADX(_Symbol, SignalTimeframe, ADX_Period);
+    if (adx_handle == INVALID_HANDLE) {
+        Print("ERROR: Failed to create ADX indicator");
+        return false;
+    }
+    
+    return true;
+}
+
+//+------------------------------------------------------------------+
+//| Initialize arrays                                                |
+//+------------------------------------------------------------------+
+void InitializeArrays() {
+    ArraySetAsSeries(rsi_buffer, true);
+    ArraySetAsSeries(stoch_k_buffer, true);
+    ArraySetAsSeries(stoch_d_buffer, true);
+    ArraySetAsSeries(macd_line_buffer, true);
+    ArraySetAsSeries(macd_signal_buffer, true);
+    ArraySetAsSeries(macd_histogram_buffer, true);
+    ArraySetAsSeries(bb_upper_buffer, true);
+    ArraySetAsSeries(bb_middle_buffer, true);
+    ArraySetAsSeries(bb_lower_buffer, true);
+    ArraySetAsSeries(atr_buffer, true);
+    ArraySetAsSeries(ema_fast_buffer, true);
+    ArraySetAsSeries(ema_slow_buffer, true);
+    ArraySetAsSeries(sma_buffer, true);
+    ArraySetAsSeries(williams_buffer, true);
+    ArraySetAsSeries(cci_buffer, true);
+    ArraySetAsSeries(adx_buffer, true);
+}
+
+//+------------------------------------------------------------------+
+//| Initialize trading statistics                                    |
+//+------------------------------------------------------------------+
+void InitializeStats() {
+    stats.total_trades = 0;
+    stats.winning_trades = 0;
+    stats.losing_trades = 0;
+    stats.total_profit = 0;
+    stats.total_loss = 0;
+    stats.win_rate = 0;
+    stats.avg_risk_reward = 0;
+    stats.max_drawdown = 0;
+    stats.current_drawdown = 0;
+    stats.peak_balance = 0;
+}
+
+//+------------------------------------------------------------------+
+//| Release indicator handles                                        |
+//+------------------------------------------------------------------+
+void ReleaseIndicators() {
+    if (rsi_handle != INVALID_HANDLE) IndicatorRelease(rsi_handle);
+    if (stoch_handle != INVALID_HANDLE) IndicatorRelease(stoch_handle);
+    if (macd_handle != INVALID_HANDLE) IndicatorRelease(macd_handle);
+    if (bb_handle != INVALID_HANDLE) IndicatorRelease(bb_handle);
+    if (atr_handle != INVALID_HANDLE) IndicatorRelease(atr_handle);
+    if (ema_fast_handle != INVALID_HANDLE) IndicatorRelease(ema_fast_handle);
+    if (ema_slow_handle != INVALID_HANDLE) IndicatorRelease(ema_slow_handle);
+    if (sma_handle != INVALID_HANDLE) IndicatorRelease(sma_handle);
+    if (williams_handle != INVALID_HANDLE) IndicatorRelease(williams_handle);
+    if (cci_handle != INVALID_HANDLE) IndicatorRelease(cci_handle);
+    if (adx_handle != INVALID_HANDLE) IndicatorRelease(adx_handle);
+}
+
+//+------------------------------------------------------------------+
+//| Check daily reset                                                |
+//+------------------------------------------------------------------+
+void CheckDailyReset() {
+    MqlDateTime dt;
+    TimeToStruct(TimeCurrent(), dt);
+    datetime current_day = StringToTime(StringFormat("%04d.%02d.%02d", dt.year, dt.mon, dt.day));
+    
+    if (current_day != last_trade_day) {
+        daily_trade_count = 0;
+        concurrent_trades = CountOpenPositions();
+        last_trade_day = current_day;
+        
+        if (LogDetailedInfo) {
+            Print("Daily reset - Date: ", TimeToString(current_day, TIME_DATE));
+        }
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Check if we can trade                                           |
+//+------------------------------------------------------------------+
+bool CanTrade() {
+    // Check daily trade limit
+    if (daily_trade_count >= MaxDailyTrades) {
+        return false;
+    }
+    
+    // Check concurrent trades limit
+    if (concurrent_trades >= MaxConcurrentTrades) {
+        return false;
+    }
+    
+    // Check spread filter
+    if (UseSpreadFilter) {
+        double spread = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD) * SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+        double pip_value = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE) * 10;
+        if (spread > MaxSpreadPips * pip_value) {
+            return false;
+        }
+    }
+    
+    // Check market hours and trading allowed
+    if (!SymbolInfoInteger(_Symbol, SYMBOL_TRADE_MODE)) {
+        return false;
+    }
+    
+    return true;
+}
+
+//+------------------------------------------------------------------+
+//| Update all market data                                          |
+//+------------------------------------------------------------------+
+bool UpdateMarketData() {
+    int required_bars = MathMax(PatternLookback, DivergenceLookback);
+    required_bars = MathMax(required_bars, 100); // Minimum bars for analysis
+    
+    // Update indicator data with error checking
+    if (CopyBuffer(rsi_handle, 0, 0, required_bars, rsi_buffer) < required_bars) {
+        Print("ERROR: Failed to copy RSI buffer");
+        return false;
+    }
+    
+    if (CopyBuffer(stoch_handle, 0, 0, required_bars, stoch_k_buffer) < required_bars ||
+        CopyBuffer(stoch_handle, 1, 0, required_bars, stoch_d_buffer) < required_bars) {
+        Print("ERROR: Failed to copy Stochastic buffers");
+        return false;
+    }
+    
+    if (CopyBuffer(macd_handle, 0, 0, required_bars, macd_line_buffer) < required_bars ||
+        CopyBuffer(macd_handle, 1, 0, required_bars, macd_signal_buffer) < required_bars ||
+        CopyBuffer(macd_handle, 2, 0, required_bars, macd_histogram_buffer) < required_bars) {
+        Print("ERROR: Failed to copy MACD buffers");
+        return false;
+    }
+    
+    if (CopyBuffer(bb_handle, 0, 0, required_bars, bb_upper_buffer) < required_bars ||
+        CopyBuffer(bb_handle, 1, 0, required_bars, bb_middle_buffer) < required_bars ||
+        CopyBuffer(bb_handle, 2, 0, required_bars, bb_lower_buffer) < required_bars) {
+        Print("ERROR: Failed to copy Bollinger Bands buffers");
+        return false;
+    }
+    
+    if (CopyBuffer(atr_handle, 0, 0, required_bars, atr_buffer) < required_bars) {
+        Print("ERROR: Failed to copy ATR buffer");
+        return false;
+    }
+    
+    if (CopyBuffer(ema_fast_handle, 0, 0, required_bars, ema_fast_buffer) < required_bars ||
+        CopyBuffer(ema_slow_handle, 0, 0, required_bars, ema_slow_buffer) < required_bars ||
+        CopyBuffer(sma_handle, 0, 0, required_bars, sma_buffer) < required_bars) {
+        Print("ERROR: Failed to copy Moving Average buffers");
+        return false;
+    }
+    
+    if (CopyBuffer(williams_handle, 0, 0, required_bars, williams_buffer) < required_bars ||
+        CopyBuffer(cci_handle, 0, 0, required_bars, cci_buffer) < required_bars ||
+        CopyBuffer(adx_handle, 0, 0, required_bars, adx_buffer) < required_bars) {
+        Print("ERROR: Failed to copy Williams/CCI/ADX buffers");
+        return false;
+    }
+    
+    // Update current ATR for dynamic calculations
+    if (ArraySize(atr_buffer) > 0) {
+        current_atr = atr_buffer[0];
+    }
+    
+    // Update fractal and zigzag data
+    if (fractalDetector != NULL) {
+        fractalDetector.UpdateFractals(_Symbol, SignalTimeframe);
+    }
+    
+    if (zigzagDetector != NULL) {
+        zigzagDetector.UpdateZigZag(_Symbol, SignalTimeframe);
+    }
+    
+    return true;
+}
+
+//+------------------------------------------------------------------+
+//| Comprehensive market analysis                                   |
+//+------------------------------------------------------------------+
+TradingSignal AnalyzeMarket() {
+    TradingSignal signal;
+    signal.signal_type = SIGNAL_NONE;
+    signal.confidence = CONFIDENCE_LOW;
+    signal.confidence_score = 0;
+    signal.price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    signal.reasons = "";
+    signal.pattern = PATTERN_NONE;
+    signal.chart_pattern = CHART_PATTERN_NONE;
+    signal.divergence = DIVERGENCE_NONE;
+    signal.timestamp = TimeCurrent();
+    signal.risk_reward_ratio = 0;
+    signal.multi_timeframe_confirmed = false;
+    
+    double confidence_score = 0;
+    string reasons = "";
+    
+    // Technical Indicator Analysis
+    confidence_score += AnalyzeTechnicalIndicators(signal, reasons);
+    
+    // Fractal Analysis
+    if (fractalDetector != NULL && ArraySize(rsi_buffer) > FractalPeriod) {
+        confidence_score += AnalyzeFractals(signal, reasons);
+    }
+    
+    // ZigZag Analysis
+    if (zigzagDetector != NULL) {
+        confidence_score += AnalyzeZigZag(signal, reasons);
+    }
+    
+    // Candlestick Pattern Analysis
+    if (EnableCandlestickPatterns && patternDetector != NULL) {
+        PATTERN_TYPE detected_pattern = patternDetector.DetectCandlestickPatterns(_Symbol, SignalTimeframe, CandleAnalysisPeriod);
+        signal.pattern = detected_pattern;
+        
+        if (detected_pattern != PATTERN_NONE) {
+            double pattern_confidence = patternDetector.GetPatternConfidence(detected_pattern);
+            confidence_score += pattern_confidence;
+            reasons += patternDetector.GetPatternName(detected_pattern) + " Pattern (" + 
+                      DoubleToString(pattern_confidence, 1) + "%); ";
+        }
+    }
+    
+    // Chart Pattern Analysis
+    if (EnableAdvancedPatterns && patternDetector != NULL && fractalDetector != NULL) {
+        CHART_PATTERN_TYPE chart_pattern = patternDetector.DetectChartPatterns(_Symbol, SignalTimeframe, 
+                                                                               fractalDetector.GetFractals(), 
+                                                                               zigzagDetector.GetZigZagPoints());
+        signal.chart_pattern = chart_pattern;
+        
+        if (chart_pattern != CHART_PATTERN_NONE) {
+            double pattern_confidence = patternDetector.GetChartPatternConfidence(chart_pattern);
+            confidence_score += pattern_confidence;
+            reasons += patternDetector.GetChartPatternName(chart_pattern) + " Chart Pattern (" + 
+                      DoubleToString(pattern_confidence, 1) + "%); ";
+        }
+    }
+    
+    // Divergence Analysis
+    if (EnableDivergenceDetection && divergenceAnalyzer != NULL) {
+        DIVERGENCE_TYPE divergence = divergenceAnalyzer.AnalyzeDivergence(_Symbol, SignalTimeframe, 
+                                                                          rsi_buffer, macd_line_buffer, cci_buffer);
+        signal.divergence = divergence;
+        
+        if (divergence != DIVERGENCE_NONE) {
+            double div_confidence = divergenceAnalyzer.GetDivergenceConfidence(divergence);
+            confidence_score += div_confidence;
+            reasons += divergenceAnalyzer.GetDivergenceName(divergence) + " Divergence (" + 
+                      DoubleToString(div_confidence, 1) + "%); ";
+        }
+    }
+    
+    // Multi-timeframe confirmation
+    if (EnableMultiTimeframe && ConfirmationTimeframe != SignalTimeframe) {
+        signal.multi_timeframe_confirmed = ConfirmSignalOnHigherTimeframe(signal.signal_type);
+        if (signal.multi_timeframe_confirmed) {
+            confidence_score += 15.0;
+            reasons += "Multi-TF Confirmed; ";
+        }
+    }
+    
+    // Apply filters
+    if (UseAdvancedFilters) {
+        confidence_score = ApplyAdvancedFilters(signal, confidence_score, reasons);
+    }
+    
+    // Calculate stop loss and take profit
+    if (signal.signal_type != SIGNAL_NONE && riskManager != NULL) {
+        CalculateStopLossAndTakeProfit(signal);
+    }
+    
+    // Set final confidence
+    signal.confidence_score = confidence_score;
+    signal.reasons = reasons;
+    
+    if (confidence_score >= 90) signal.confidence = CONFIDENCE_EXTREME;
+    else if (confidence_score >= 75) signal.confidence = CONFIDENCE_HIGH;
+    else if (confidence_score >= 60) signal.confidence = CONFIDENCE_MEDIUM;
+    else signal.confidence = CONFIDENCE_LOW;
+    
+    return signal;
+}
+
+//+------------------------------------------------------------------+
+//| Analyze technical indicators                                     |
+//+------------------------------------------------------------------+
+double AnalyzeTechnicalIndicators(TradingSignal &signal, string &reasons) {
+    double confidence = 0;
+    int bullish_signals = 0;
+    int bearish_signals = 0;
+    
+    // Validate array sizes
+    if (ArraySize(rsi_buffer) < 3 || ArraySize(macd_line_buffer) < 3 || 
+        ArraySize(ema_fast_buffer) < 3 || ArraySize(bb_upper_buffer) < 3) {
+        return 0;
+    }
+    
+    // RSI Analysis
+    if (rsi_buffer[0] < 30 && rsi_buffer[1] >= 30) {
+        bullish_signals++;
+        confidence += 8;
+        reasons += "RSI Oversold Recovery; ";
+    } else if (rsi_buffer[0] > 70 && rsi_buffer[1] <= 70) {
+        bearish_signals++;
+        confidence += 8;
+        reasons += "RSI Overbought Decline; ";
+    }
+    
+    // MACD Analysis
+    if (macd_line_buffer[0] > macd_signal_buffer[0] && macd_line_buffer[1] <= macd_signal_buffer[1]) {
+        bullish_signals++;
+        confidence += 10;
+        reasons += "MACD Bullish Crossover; ";
+    } else if (macd_line_buffer[0] < macd_signal_buffer[0] && macd_line_buffer[1] >= macd_signal_buffer[1]) {
+        bearish_signals++;
+        confidence += 10;
+        reasons += "MACD Bearish Crossover; ";
+    }
+    
+    // Moving Average Analysis
+    if (ema_fast_buffer[0] > ema_slow_buffer[0] && ema_fast_buffer[1] <= ema_slow_buffer[1]) {
+        bullish_signals++;
+        confidence += 12;
+        reasons += "EMA Bullish Crossover; ";
+    } else if (ema_fast_buffer[0] < ema_slow_buffer[0] && ema_fast_buffer[1] >= ema_slow_buffer[1]) {
+        bearish_signals++;
+        confidence += 12;
+        reasons += "EMA Bearish Crossover; ";
+    }
+    
+    // Bollinger Bands Analysis
+    double current_price = iClose(_Symbol, SignalTimeframe, 0);
+    if (current_price <= bb_lower_buffer[0] && iClose(_Symbol, SignalTimeframe, 1) > bb_lower_buffer[1]) {
+        bullish_signals++;
+        confidence += 8;
+        reasons += "BB Lower Band Touch; ";
+    } else if (current_price >= bb_upper_buffer[0] && iClose(_Symbol, SignalTimeframe, 1) < bb_upper_buffer[1]) {
+        bearish_signals++;
+        confidence += 8;
+        reasons += "BB Upper Band Touch; ";
+    }
+    
+    // Stochastic Analysis
+    if (ArraySize(stoch_k_buffer) >= 2) {
+        if (stoch_k_buffer[0] > stoch_d_buffer[0] && stoch_k_buffer[1] <= stoch_d_buffer[1] && stoch_k_buffer[0] < 20) {
+            bullish_signals++;
+            confidence += 6;
+            reasons += "Stoch Bullish Oversold; ";
+        } else if (stoch_k_buffer[0] < stoch_d_buffer[0] && stoch_k_buffer[1] >= stoch_d_buffer[1] && stoch_k_buffer[0] > 80) {
+            bearish_signals++;
+            confidence += 6;
+            reasons += "Stoch Bearish Overbought; ";
+        }
+    }
+    
+    // ADX Trend Strength
+    if (ArraySize(adx_buffer) >= 1 && adx_buffer[0] > 25) {
+        confidence += 5;
+        reasons += "Strong Trend (ADX>25); ";
+    }
+    
+    // Determine signal direction
+    if (bullish_signals > bearish_signals && bullish_signals >= 2) {
+        signal.signal_type = SIGNAL_BUY;
+    } else if (bearish_signals > bullish_signals && bearish_signals >= 2) {
+        signal.signal_type = SIGNAL_SELL;
+    }
+    
+    return confidence;
+}
+
+//+------------------------------------------------------------------+
+//| Analyze fractals                                                |
+//+------------------------------------------------------------------+
+double AnalyzeFractals(TradingSignal &signal, string &reasons) {
+    if (fractalDetector == NULL) return 0;
+    
+    double confidence = 0;
+    FractalPoint fractals[];
+    
+    if (fractalDetector.GetRecentFractals(fractals, 10)) {
+        // Analyze fractal patterns for support/resistance
+        double current_price = iClose(_Symbol, SignalTimeframe, 0);
+        
+        for (int i = 0; i < ArraySize(fractals); i++) {
+            double distance = MathAbs(current_price - fractals[i].price);
+            double tolerance = current_atr * 0.5;
+            
+            if (distance <= tolerance) {
+                if (fractals[i].is_high) {
+                    confidence += 8;
+                    reasons += "Near Fractal Resistance; ";
+                    if (signal.signal_type == SIGNAL_NONE) signal.signal_type = SIGNAL_SELL;
+                } else {
+                    confidence += 8;
+                    reasons += "Near Fractal Support; ";
+                    if (signal.signal_type == SIGNAL_NONE) signal.signal_type = SIGNAL_BUY;
+                }
+                break;
+            }
+        }
+        
+        // Check for fractal breakouts
+        if (ArraySize(fractals) >= 2) {
+            for (int i = 0; i < ArraySize(fractals) - 1; i++) {
+                if (fractals[i].is_high && current_price > fractals[i].price + current_atr * 0.3) {
+                    confidence += 10;
+                    reasons += "Fractal High Breakout; ";
+                    if (signal.signal_type == SIGNAL_NONE) signal.signal_type = SIGNAL_BUY;
+                    break;
+                } else if (!fractals[i].is_high && current_price < fractals[i].price - current_atr * 0.3) {
+                    confidence += 10;
+                    reasons += "Fractal Low Breakdown; ";
+                    if (signal.signal_type == SIGNAL_NONE) signal.signal_type = SIGNAL_SELL;
+                    break;
+                }
+            }
+        }
+    }
+    
+    return confidence;
+}
+
+//+------------------------------------------------------------------+
+//| Analyze ZigZag                                                  |
+//+------------------------------------------------------------------+
+double AnalyzeZigZag(TradingSignal &signal, string &reasons) {
+    if (zigzagDetector == NULL) return 0;
+    
+    double confidence = 0;
+    ZigZagPoint zigzag_points[];
+    
+    if (zigzagDetector.GetRecentPoints(zigzag_points, 5)) {
+        if (ArraySize(zigzag_points) >= 3) {
+            // Analyze trend direction from zigzag
+            bool uptrend = zigzag_points[0].price > zigzag_points[2].price;
+            bool significant_move = MathAbs(zigzag_points[0].price - zigzag_points[1].price) > current_atr;
+            
+            if (significant_move) {
+                if (uptrend && zigzag_points[0].is_peak) {
+                    confidence += 12;
+                    reasons += "ZigZag Uptrend Confirmed; ";
+                    if (signal.signal_type == SIGNAL_NONE) signal.signal_type = SIGNAL_BUY;
+                } else if (!uptrend && !zigzag_points[0].is_peak) {
+                    confidence += 12;
+                    reasons += "ZigZag Downtrend Confirmed; ";
+                    if (signal.signal_type == SIGNAL_NONE) signal.signal_type = SIGNAL_SELL;
+                }
+            }
+            
+            // Check for reversal patterns in zigzag
+            if (ArraySize(zigzag_points) >= 5) {
+                // Double top/bottom detection
+                double tolerance = current_atr * 0.5;
+                if (MathAbs(zigzag_points[0].price - zigzag_points[4].price) < tolerance && 
+                    zigzag_points[0].is_peak == zigzag_points[4].is_peak) {
+                    confidence += 15;
+                    if (zigzag_points[0].is_peak) {
+                        reasons += "ZigZag Double Top; ";
+                        signal.signal_type = SIGNAL_SELL;
+                    } else {
+                        reasons += "ZigZag Double Bottom; ";
+                        signal.signal_type = SIGNAL_BUY;
+                    }
+                }
+            }
+        }
+    }
+    
+    return confidence;
+}
+
+//+------------------------------------------------------------------+
+//| Apply advanced filters                                           |
+//+------------------------------------------------------------------+
+double ApplyAdvancedFilters(TradingSignal &signal, double confidence, string &reasons) {
+    double filtered_confidence = confidence;
+    
+    // Volume filter (if available)
+    if (UseVolumeFilter) {
+        long current_volume = iVolume(_Symbol, SignalTimeframe, 0);
+        long avg_volume = 0;
+        for (int i = 1; i <= 10; i++) {
+            avg_volume += iVolume(_Symbol, SignalTimeframe, i);
+        }
+        avg_volume /= 10;
+        
+        if (current_volume < avg_volume * 0.8) {
+            filtered_confidence *= 0.9;
+            reasons += "Low Volume Filter; ";
+        } else if (current_volume > avg_volume * 1.5) {
+            filtered_confidence *= 1.1;
+            reasons += "High Volume Boost; ";
+        }
+    }
+    
+    // Trend filter
+    if (TradeOnlyTrends && ArraySize(ema_fast_buffer) >= 1 && ArraySize(sma_buffer) >= 1) {
+        double current_price = iClose(_Symbol, SignalTimeframe, 0);
+        bool in_uptrend = (ema_fast_buffer[0] > ema_slow_buffer[0]) && (current_price > sma_buffer[0]);
+        bool in_downtrend = (ema_fast_buffer[0] < ema_slow_buffer[0]) && (current_price < sma_buffer[0]);
+        
+        if (signal.signal_type == SIGNAL_BUY && !in_uptrend) {
+            filtered_confidence *= 0.7;
+            reasons += "Against Trend Filter; ";
+        } else if (signal.signal_type == SIGNAL_SELL && !in_downtrend) {
+            filtered_confidence *= 0.7;
+            reasons += "Against Trend Filter; ";
+        }
+    }
+    
+    // Time-based filters
+    MqlDateTime dt;
+    TimeToStruct(TimeCurrent(), dt);
+    
+    // Avoid trading during low volatility hours
+    if (dt.hour >= 22 || dt.hour <= 2) { // Adjust for your timezone
+        filtered_confidence *= 0.8;
+        reasons += "Low Volatility Hours; ";
+    }
+    
+    // Boost confidence during high volatility sessions
+    if ((dt.hour >= 8 && dt.hour <= 10) || (dt.hour >= 13 && dt.hour <= 16)) {
+        filtered_confidence *= 1.05;
+        reasons += "High Volatility Session; ";
+    }
+    
+    return filtered_confidence;
+}
+
+//+------------------------------------------------------------------+
+//| Calculate stop loss and take profit                             |
+//+------------------------------------------------------------------+
+void CalculateStopLossAndTakeProfit(TradingSignal &signal) {
+    if (current_atr <= 0) return;
+    
+    double tick_size = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+    
+    if (UseDynamicSLTP) {
+        // Dynamic SL/TP based on ATR and market volatility
+        double volatility_multiplier = 1.0;
+        
+        // Adjust for market volatility
+        if (ArraySize(atr_buffer) >= 20) {
+            double avg_atr = 0;
+            for (int i = 0; i < 20; i++) {
+                avg_atr += atr_buffer[i];
+            }
+            avg_atr /= 20;
+            volatility_multiplier = current_atr / avg_atr;
+        }
+        
+        double sl_distance = current_atr * ATR_Multiplier_SL * volatility_multiplier;
+        double tp_distance = current_atr * ATR_Multiplier_TP * volatility_multiplier;
+        
+        if (signal.signal_type == SIGNAL_BUY) {
+            signal.stop_loss = signal.price - sl_distance;
+            signal.take_profit = signal.price + tp_distance;
+        } else if (signal.signal_type == SIGNAL_SELL) {
+            signal.stop_loss = signal.price + sl_distance;
+            signal.take_profit = signal.price - tp_distance;
+        }
+    } else {
+        // Fixed SL/TP based on ATR
+        double sl_distance = current_atr * ATR_Multiplier_SL;
+        double tp_distance = current_atr * ATR_Multiplier_TP;
+        
+        if (signal.signal_type == SIGNAL_BUY) {
+            signal.stop_loss = signal.price - sl_distance;
+            signal.take_profit = signal.price + tp_distance;
+        } else if (signal.signal_type == SIGNAL_SELL) {
+            signal.stop_loss = signal.price + sl_distance;
+            signal.take_profit = signal.price - tp_distance;
+        }
+    }
+    
+    // Normalize prices to tick size
+    signal.stop_loss = NormalizeDouble(signal.stop_loss, _Digits);
+    signal.take_profit = NormalizeDouble(signal.take_profit, _Digits);
+    
+    // Calculate risk-reward ratio
+    double risk = MathAbs(signal.price - signal.stop_loss);
+    double reward = MathAbs(signal.take_profit - signal.price);
+    signal.risk_reward_ratio = (risk > 0) ? reward / risk : 0;
+}
+
+//+------------------------------------------------------------------+
+//| Confirm signal on higher timeframe                              |
+//+------------------------------------------------------------------+
+bool ConfirmSignalOnHigherTimeframe(SIGNAL_TYPE signal_type) {
+    if (ConfirmationTimeframe == SignalTimeframe) return true;
+    
+    // Get higher timeframe data
+    double htf_ema_fast[], htf_ema_slow[], htf_rsi[];
+    
+    int htf_ema_fast_handle = iMA(_Symbol, ConfirmationTimeframe, EMA_Fast, 0, MODE_EMA, PRICE_CLOSE);
+    int htf_ema_slow_handle = iMA(_Symbol, ConfirmationTimeframe, EMA_Slow, 0, MODE_EMA, PRICE_CLOSE);
+    int htf_rsi_handle = iRSI(_Symbol, ConfirmationTimeframe, RSI_Period, PRICE_CLOSE);
+    
+    if (htf_ema_fast_handle == INVALID_HANDLE || htf_ema_slow_handle == INVALID_HANDLE || htf_rsi_handle == INVALID_HANDLE) {
+        return false;
+    }
+    
+    if (CopyBuffer(htf_ema_fast_handle, 0, 0, 3, htf_ema_fast) < 3 ||
+        CopyBuffer(htf_ema_slow_handle, 0, 0, 3, htf_ema_slow) < 3 ||
+        CopyBuffer(htf_rsi_handle, 0, 0, 3, htf_rsi) < 3) {
+        IndicatorRelease(htf_ema_fast_handle);
+        IndicatorRelease(htf_ema_slow_handle);
+        IndicatorRelease(htf_rsi_handle);
+        return false;
+    }
+    
+    bool confirmed = false;
+    
+    if (signal_type == SIGNAL_BUY) {
+        confirmed = (htf_ema_fast[0] > htf_ema_slow[0]) && (htf_rsi[0] < 70);
+    } else if (signal_type == SIGNAL_SELL) {
+        confirmed = (htf_ema_fast[0] < htf_ema_slow[0]) && (htf_rsi[0] > 30);
+    }
+    
+    IndicatorRelease(htf_ema_fast_handle);
+    IndicatorRelease(htf_ema_slow_handle);
+    IndicatorRelease(htf_rsi_handle);
+    
+    return confirmed;
+}
+
+//+------------------------------------------------------------------+
+//| Process trading signal                                           |
+//+------------------------------------------------------------------+
+void ProcessTradingSignal(TradingSignal &signal) {
+    if (!EnableAutoTrading) {
+        // Only show alerts and notifications
+        if (ShowAlerts) {
+            Alert("Trading Signal: ", EnumToString(signal.signal_type), 
+                  " - Confidence: ", DoubleToString(signal.confidence_score, 1), "%",
+                  " - Reasons: ", signal.reasons);
+        }
+        
+        if (SendNotifications) {
+            SendNotification("Signal: " + EnumToString(signal.signal_type) + 
+                           " - " + DoubleToString(signal.confidence_score, 1) + "%");
+        }
+        
+        return;
+    }
+    
+    // Calculate lot size
+    double lot_size = riskManager.CalculateLotSize(signal.price, signal.stop_loss, MaxRiskPercent);
+    
+    if (lot_size < SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN)) {
+        if (LogDetailedInfo) {
+            Print("Lot size too small: ", lot_size, " Min: ", SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN));
+        }
+        return;
+    }
+    
+    // Execute trade
+    bool result = false;
+    
+    if (signal.signal_type == SIGNAL_BUY) {
+        result = trade.Buy(lot_size, _Symbol, signal.price, signal.stop_loss, signal.take_profit, 
+                          "SignalDetector_" + TimeToString(TimeCurrent()));
+    } else if (signal.signal_type == SIGNAL_SELL) {
+        result = trade.Sell(lot_size, _Symbol, signal.price, signal.stop_loss, signal.take_profit, 
+                           "SignalDetector_" + TimeToString(TimeCurrent()));
+    }
+    
+    if (result) {
+        daily_trade_count++;
+        concurrent_trades++;
+        last_signal_time = TimeCurrent();
+        
+        stats.total_trades++;
+        
+        if (LogDetailedInfo) {
+            Print("Trade executed: ", EnumToString(signal.signal_type), 
+                  " - Size: ", lot_size, 
+                  " - Confidence: ", DoubleToString(signal.confidence_score, 1), "%",
+                  " - R/R: ", DoubleToString(signal.risk_reward_ratio, 2));
+        }
+        
+        if (SendNotifications) {
+            SendNotification("Trade executed: " + EnumToString(signal.signal_type) + 
+                           " - Confidence: " + DoubleToString(signal.confidence_score, 1) + "%");
+        }
+    } else {
+        if (LogDetailedInfo) {
+            Print("Trade execution failed: ", trade.ResultRetcode(), " - ", trade.ResultComment());
+        }
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Count open positions                                             |
+//+------------------------------------------------------------------+
+int CountOpenPositions() {
+    int count = 0;
+    for (int i = PositionsTotal() - 1; i >= 0; i--) {
+        if (PositionSelectByTicket(PositionGetTicket(i))) {
+            if (PositionGetString(POSITION_SYMBOL) == _Symbol) {
+                count++;
+            }
+        }
+    }
+    return count;
+}
+
+//+------------------------------------------------------------------+
+//| Update chart display                                             |
+//+------------------------------------------------------------------+
+void UpdateChartDisplay() {
+    if (!DrawLinesOnChart && !ShowSignalLabels && !DrawPatternLines) return;
+    
+    // Draw fractal points
+    if (DrawPatternLines && fractalDetector != NULL) {
+        FractalPoint fractals[];
+        if (fractalDetector.GetRecentFractals(fractals, 20)) {
+            for (int i = 0; i < ArraySize(fractals); i++) {
+                string obj_name = "Fractal_" + TimeToString(fractals[i].time);
+                if (ObjectFind(0, obj_name) < 0) {
+                    if (fractals[i].is_high) {
+                        ObjectCreate(0, obj_name, OBJ_ARROW_DOWN, 0, fractals[i].time, fractals[i].price);
+                        ObjectSetInteger(0, obj_name, OBJPROP_COLOR, clrRed);
+                    } else {
+                        ObjectCreate(0, obj_name, OBJ_ARROW_UP, 0, fractals[i].time, fractals[i].price);
+                        ObjectSetInteger(0, obj_name, OBJPROP_COLOR, clrBlue);
+                    }
+                    ObjectSetInteger(0, obj_name, OBJPROP_WIDTH, 2);
+                }
+            }
+        }
+    }
+    
+    // Draw zigzag lines
+    if (DrawPatternLines && zigzagDetector != NULL) {
+        ZigZagPoint zigzag[];
+        if (zigzagDetector.GetRecentPoints(zigzag, 10)) {
+            for (int i = 0; i < ArraySize(zigzag) - 1; i++) {
+                string obj_name = "ZigZag_" + IntegerToString(i);
+                if (ObjectFind(0, obj_name) < 0) {
+                    ObjectCreate(0, obj_name, OBJ_TREND, 0, zigzag[i].time, zigzag[i].price, 
+                                zigzag[i+1].time, zigzag[i+1].price);
+                    ObjectSetInteger(0, obj_name, OBJPROP_COLOR, clrYellow);
+                    ObjectSetInteger(0, obj_name, OBJPROP_WIDTH, 1);
+                    ObjectSetInteger(0, obj_name, OBJPROP_RAY_LEFT, false);
+                    ObjectSetInteger(0, obj_name, OBJPROP_RAY_RIGHT, false);
+                }
+            }
+        }
+    }
+    
+    ChartRedraw();
+}
+
+//+------------------------------------------------------------------+
+//| Update performance metrics                                       |
+//+------------------------------------------------------------------+
+void UpdatePerformanceMetrics() {
+    double current_balance = AccountInfoDouble(ACCOUNT_BALANCE);
+    
+    // Update peak balance and drawdown
+    if (current_balance > stats.peak_balance) {
+        stats.peak_balance = current_balance;
+        stats.current_drawdown = 0;
+    } else {
+        stats.current_drawdown = (stats.peak_balance - current_balance) / stats.peak_balance * 100;
+        if (stats.current_drawdown > stats.max_drawdown) {
+            stats.max_drawdown = stats.current_drawdown;
+        }
+    }
+    
+    // Update win rate and other metrics
+    if (stats.total_trades > 0) {
+        stats.win_rate = (double)stats.winning_trades / stats.total_trades * 100;
+        
+        if (stats.total_loss != 0) {
+            stats.avg_risk_reward = stats.total_profit / MathAbs(stats.total_loss);
+        }
+    }
+    
+    concurrent_trades = CountOpenPositions();
+}
+
+//+------------------------------------------------------------------+
+//| Print final statistics                                           |
+//+------------------------------------------------------------------+
+void PrintFinalStats() {
+    Print("=== Trading Statistics ===");
+    Print("Total Trades: ", stats.total_trades);
+    Print("Winning Trades: ", stats.winning_trades);
+    Print("Losing Trades: ", stats.losing_trades);
+    Print("Win Rate: ", DoubleToString(stats.win_rate, 2), "%");
+    Print("Average R/R: ", DoubleToString(stats.avg_risk_reward, 2));
+    Print("Max Drawdown: ", DoubleToString(stats.max_drawdown, 2), "%");
+    Print("Total Profit: ", DoubleToString(stats.total_profit, 2));
+    Print("Total Loss: ", DoubleToString(stats.total_loss, 2));
+}
